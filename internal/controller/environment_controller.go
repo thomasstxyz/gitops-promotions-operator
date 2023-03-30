@@ -18,13 +18,25 @@ package controller
 
 import (
 	"context"
+	"os"
+	"strings"
+	"time"
 
+	"golang.org/x/crypto/ssh"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	gogitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+
 	promotionsv1alpha1 "github.com/thomasstxyz/gitops-promotions-operator/api/v1alpha1"
+	"github.com/thomasstxyz/gitops-promotions-operator/internal/util"
 )
 
 // EnvironmentReconciler reconciles a Environment object
@@ -47,9 +59,83 @@ type EnvironmentReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *EnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	log := log.FromContext(ctx)
+	start := time.Now()
 
-	// TODO(user): your logic here
+	obj := &promotionsv1alpha1.Environment{}
+	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Run these functions after the reconcile loop
+	defer func() {
+		obj.Status.ObservedGeneration = obj.GetObjectMeta().GetGeneration()
+
+		if err := r.Status().Update(ctx, obj); err != nil {
+			log.Error(err, "Unable to update Environment status")
+		}
+	}()
+
+	// Check if we can clone the repository
+
+	tmpDir, err := util.TempDirForObj("", obj)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	var repo *gogit.Repository
+	var gitAuthOpts transport.AuthMethod
+	var cloneURL string = obj.Spec.Source.URL
+
+	// If we have a secret, we use SSH with auth options to clone the repository
+	if obj.Spec.Source.SecretRef != nil {
+		sshSecret := &corev1.Secret{}
+		if obj.Spec.Source.SecretRef != nil {
+			err := r.Get(ctx, types.NamespacedName{Name: obj.GetSSHSecretObjectName(), Namespace: req.Namespace}, sshSecret)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		sshSigner, err := ssh.ParsePrivateKey(sshSecret.Data["private"])
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		gitAuthOpts = &gogitssh.PublicKeys{
+			User:   "git",
+			Signer: sshSigner,
+		}
+		cloneURL = strings.Replace(cloneURL, "https://", "git@", 1)
+		cloneURL = strings.Replace(cloneURL, ".com/", ".com:", 1)
+	}
+
+	repo, err = gogit.PlainClone(tmpDir, false, &gogit.CloneOptions{
+		URL:           cloneURL,
+		ReferenceName: plumbing.NewBranchReferenceName(obj.GetBranch()),
+		Auth:          gitAuthOpts,
+	})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	_, err = repo.Worktree()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	head, err := repo.Head()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	commit := head.Hash()
+
+	// If we reach this far, we assume that the environment is ready
+
+	*obj = promotionsv1alpha1.EnvironmentReady(*obj, promotionsv1alpha1.SucceededReason, "Ready for Promotion", commit.String())
+
+	end := time.Now()
+	log.Info("Reconciled Environment successfully", "duration", end.Sub(start))
 
 	return ctrl.Result{}, nil
 }

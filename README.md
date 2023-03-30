@@ -1,6 +1,41 @@
 # gitops-promotions-operator
 // TODO(user): Add simple overview of use/purpose
 
+## Authentication for private git repositories
+
+Generate an RSA key pair for SSH auth.
+
+```bash
+ssh-keygen -b 2048 -t rsa -f key -q -C gitopsprombot -N ""
+GITOPSPROMBOT_PRIVATE_KEY=$(cat key)
+GITOPSPROMBOT_PUBLIC_KEY=$(cat key.pub)
+```
+
+Create a Secret following the syntax
+`<environment>-ssh`.
+
+```bash
+kubectl create secret generic privaterepo-ssh \
+--from-literal=private=${GITOPSPROMBOT_PRIVATE_KEY} \
+--from-literal=public=${GITOPSPROMBOT_PUBLIC_KEY}
+```
+
+The public key needs to be configured as a "deploy key" in the Git Repository.
+**If you want to promote this environment, the deploy key needs write permissions!**
+```bash
+cat key.pub
+```
+> Docs about how to configure a deploy key:
+> - [GitHub](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys)
+
+
+When applied to the cluster, you should delete the key from your machine.
+
+```bash
+rm key
+rm key.pub
+```
+
 ## Description
 // TODO(user): An in-depth paragraph about your project and overview of use
 
