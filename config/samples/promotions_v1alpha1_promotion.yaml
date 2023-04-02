@@ -1,0 +1,12 @@
+apiVersion: promotions.gitopsprom.io/v1alpha1
+kind: Promotion
+metadata:
+  labels:
+    app.kubernetes.io/name: promotion
+    app.kubernetes.io/instance: promotion-sample
+    app.kubernetes.io/part-of: gitops-promotions-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: gitops-promotions-operator
+  name: promotion-sample
+spec:
+  # TODO(user): Add fields here

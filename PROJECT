@@ -17,4 +17,13 @@ resources:
   kind: Environment
   path: github.com/thomasstxyz/gitops-promotions-operator/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: gitopsprom.io
+  group: promotions
+  kind: Promotion
+  path: github.com/thomasstxyz/gitops-promotions-operator/api/v1alpha1
+  version: v1alpha1
 version: "3"

@@ -1,0 +1,27 @@
+# permissions for end users to view promotions.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: promotion-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: gitops-promotions-operator
+    app.kubernetes.io/part-of: gitops-promotions-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: promotion-viewer-role
+rules:
+- apiGroups:
+  - promotions.gitopsprom.io
+  resources:
+  - promotions
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - promotions.gitopsprom.io
+  resources:
+  - promotions/status
+  verbs:
+  - get
