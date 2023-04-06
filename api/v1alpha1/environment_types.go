@@ -25,6 +25,10 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+const (
+	GitProviderGitHub string = "github"
+)
+
 // EnvironmentSpec defines the desired state of Environment
 type EnvironmentSpec struct {
 	// Path is the filesystem path to the environment directory
@@ -36,6 +40,18 @@ type EnvironmentSpec struct {
 	// Source defines the source repository of the environment.
 	// +required
 	Source Source `json:"source"`
+
+	// ApiTokenSecretRef refers to a secret containing the API token
+	// needed for doing pull requests.
+	// Its a generic secret with the key "token".
+	// +optional
+	ApiTokenSecretRef *corev1.LocalObjectReference `json:"apiTokenSecretRef,omitempty"`
+
+	// GitProvider is the name of the git provider.
+	// Required for pull request strategy.
+	// +Kubebuilder:Validation:Enum=github
+	// +optional
+	GitProvider string `json:"gitProvider"`
 }
 
 const (
@@ -150,6 +166,17 @@ func EnvironmentReadyMessage(environment Environment) string {
 		}
 	}
 	return ""
+}
+
+// IsReady returns true if the Environment is ready, i.e. if the
+// ReadyCondition is present and has status 'True'.
+func (e *Environment) IsReady() bool {
+	if c := meta.FindStatusCondition(e.Status.Conditions, ReadyCondition); c != nil {
+		if c.Status == metav1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }
 
 // GetStatusConditions returns a pointer to the Status.Conditions slice

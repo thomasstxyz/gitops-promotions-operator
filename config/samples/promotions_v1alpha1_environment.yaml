@@ -19,6 +19,11 @@ spec:
     url: https://github.com/thomasstxyz/example-kustomize-overlay-prod
     ref:
       branch: main
+    secretRef:
+      name: prod-ssh
+  apiTokenSecretRef:
+    name: github-api-token
+  gitProvider: github
 ---
 apiVersion: promotions.gitopsprom.io/v1alpha1
 kind: Environment

@@ -5,20 +5,20 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.11.1
   creationTimestamp: null
-  name: environments.promotions.gitopsprom.io
+  name: promotions.promotions.gitopsprom.io
 spec:
   group: promotions.gitopsprom.io
   names:
-    kind: Environment
-    listKind: EnvironmentList
-    plural: environments
-    singular: environment
+    kind: Promotion
+    listKind: PromotionList
+    plural: promotions
+    singular: promotion
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Environment is the Schema for the environments API
+        description: Promotion is the Schema for the promotions API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -33,12 +33,26 @@ spec:
           metadata:
             type: object
           spec:
-            description: EnvironmentSpec defines the desired state of Environment
+            description: PromotionSpec defines the desired state of Promotion
             properties:
-              apiTokenSecretRef:
-                description: ApiTokenSecretRef refers to a secret containing the API
-                  token needed for doing pull requests. Its a generic secret with
-                  the key "token".
+              copy:
+                description: Copy defines a list of copy operations to perform.
+                items:
+                  description: CopyOperation defines a file/directory copy operation.
+                  properties:
+                    source:
+                      description: The source path to copy from.
+                      type: string
+                    target:
+                      description: The target path to copy to.
+                      type: string
+                  required:
+                  - source
+                  - target
+                  type: object
+                type: array
+              sourceEnvironmentRef:
+                description: The source environment to promote from.
                 properties:
                   name:
                     description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
@@ -46,48 +60,28 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
-              gitProvider:
-                description: GitProvider is the name of the git provider. Required
-                  for pull request strategy.
+              strategy:
+                description: Strategy defines the strategy to use when promoting.
+                enum:
+                - pull-request
                 type: string
-              path:
-                description: Path is the filesystem path to the environment directory
-                  relative from the root of the source repository. Defaults to the
-                  root of the repository.
-                type: string
-              source:
-                description: Source defines the source repository of the environment.
+              targetEnvironmentRef:
+                description: The target environment to promote to.
                 properties:
-                  ref:
-                    description: Ref defines the git reference to use. Defaults to
-                      the "master" branch.
-                    properties:
-                      branch:
-                        description: Branch to check out, defaults to 'master' if
-                          no other field is defined.
-                        type: string
-                    type: object
-                  secretRef:
-                    description: SecretRef is the name of the secret containing the
-                      credentials to access the source repository.
-                    properties:
-                      name:
-                        description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                          TODO: Add other useful fields. apiVersion, kind, uid?'
-                        type: string
-                    type: object
-                    x-kubernetes-map-type: atomic
-                  url:
-                    description: URL is the URL of the source repository.
+                  name:
+                    description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      TODO: Add other useful fields. apiVersion, kind, uid?'
                     type: string
-                required:
-                - url
                 type: object
+                x-kubernetes-map-type: atomic
             required:
-            - source
+            - copy
+            - sourceEnvironmentRef
+            - strategy
+            - targetEnvironmentRef
             type: object
           status:
-            description: EnvironmentStatus defines the observed state of Environment
+            description: PromotionStatus defines the observed state of Promotion
             properties:
               conditions:
                 description: Conditions is a list of the current conditions of the
@@ -159,15 +153,23 @@ spec:
                   - type
                   type: object
                 type: array
-              observedCommitHash:
-                description: ObservedCommitHash is the last observed commit hash of
-                  the Environment object.
-                type: string
               observedGeneration:
                 description: ObservedGeneration is the last observed generation of
                   the Environment object.
                 format: int64
                 type: integer
+              pullRequestBranch:
+                description: PullRequestBranch is the branch of the pull request created
+                  by the promotion.
+                type: string
+              pullRequestNumber:
+                description: PullRequestNumber is the number of the pull request created
+                  by the promotion.
+                type: integer
+              pullRequestUrl:
+                description: PullRequestURL is the URL of the pull request created
+                  by the promotion.
+                type: string
             type: object
         type: object
     served: true

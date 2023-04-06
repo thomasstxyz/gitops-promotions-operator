@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -25,17 +26,57 @@ import (
 
 // PromotionSpec defines the desired state of Promotion
 type PromotionSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// The source environment to promote from.
+	// +required
+	SourceEnvironmentRef *corev1.LocalObjectReference `json:"sourceEnvironmentRef"`
 
-	// Foo is an example field of Promotion. Edit promotion_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// The target environment to promote to.
+	// +required
+	TargetEnvironmentRef *corev1.LocalObjectReference `json:"targetEnvironmentRef"`
+
+	// Copy defines a list of copy operations to perform.
+	// +required
+	Copy []CopyOperation `json:"copy"`
+
+	// Strategy defines the strategy to use when promoting.
+	// +required
+	// +kubebuilder:validation:Enum=pull-request
+	Strategy string `json:"strategy"`
+}
+
+// CopyOperation defines a file/directory copy operation.
+type CopyOperation struct {
+	// The source path to copy from.
+	// +required
+	Source string `json:"source"`
+
+	// The target path to copy to.
+	// +required
+	Target string `json:"target"`
 }
 
 // PromotionStatus defines the observed state of Promotion
 type PromotionStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// ObservedGeneration is the last observed generation of the Environment
+	// object.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Conditions is a list of the current conditions of the Environment.
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// PullRequestURL is the URL of the pull request created by the promotion.
+	// +optional
+	PullRequestURL string `json:"pullRequestUrl,omitempty"`
+
+	// PullRequestNumber is the number of the pull request created by the promotion.
+	// +optional
+	PullRequestNumber int `json:"pullRequestNumber,omitempty"`
+
+	// PullRequestBranch is the branch of the pull request created by the promotion.
+	// +optional
+	PullRequestBranch string `json:"pullRequestBranch,omitempty"`
 }
 
 //+kubebuilder:object:root=true

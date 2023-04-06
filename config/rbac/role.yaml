@@ -31,3 +31,29 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - promotions.gitopsprom.io
+  resources:
+  - promotions
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - promotions.gitopsprom.io
+  resources:
+  - promotions/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - promotions.gitopsprom.io
+  resources:
+  - promotions/status
+  verbs:
+  - get
+  - patch
+  - update
