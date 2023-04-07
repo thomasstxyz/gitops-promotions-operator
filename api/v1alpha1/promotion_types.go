@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	meta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -46,6 +47,11 @@ type PromotionSpec struct {
 
 // CopyOperation defines a file/directory copy operation.
 type CopyOperation struct {
+	// Name is the name you want to give this copy operation.
+	// E.g. "Application Version"
+	// +required
+	Name string `json:"name"`
+
 	// The source path to copy from.
 	// +required
 	Source string `json:"source"`
@@ -57,26 +63,88 @@ type CopyOperation struct {
 
 // PromotionStatus defines the observed state of Promotion
 type PromotionStatus struct {
-	// ObservedGeneration is the last observed generation of the Environment
+	// ObservedGeneration is the last observed generation of the Promotion
 	// object.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// Conditions is a list of the current conditions of the Environment.
+	// Conditions is a list of the current conditions of the Promotion.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// PullRequestURL is the URL of the pull request created by the promotion.
+	// LastPullRequestURL is the URL of the pull request created by the promotion.
 	// +optional
-	PullRequestURL string `json:"pullRequestUrl,omitempty"`
+	LastPullRequestURL string `json:"lastPullRequestUrl,omitempty"`
 
-	// PullRequestNumber is the number of the pull request created by the promotion.
+	// LastPullRequestNumber is the number of the pull request created by the promotion.
 	// +optional
-	PullRequestNumber int `json:"pullRequestNumber,omitempty"`
+	LastPullRequestNumber int `json:"lastPullRequestNumber,omitempty"`
+}
 
-	// PullRequestBranch is the branch of the pull request created by the promotion.
-	// +optional
-	PullRequestBranch string `json:"pullRequestBranch,omitempty"`
+const (
+	// PromotionOperationSucceedReason represents the fact that the promotion operations succeeded.
+	PromotionOperationSucceedReason string = "PromotionOperationSucceed"
+
+	// PromotionOperationFailedReason represents the fact that the promotion operations failed.
+	PromotionOperationFailedReason string = "PromotionOperationFailed"
+)
+
+// PromotionProgressing resets the conditions of the Promotion to metav1.Condition of
+// type ReadyCondition with status 'Unknown' and ProgressingReason
+// reason and message. It returns the modified Promotion.
+func PromotionProgressing(promotion Promotion) Promotion {
+	promotion.Status.ObservedGeneration = promotion.Generation
+	promotion.Status.Conditions = []metav1.Condition{}
+	newCondition := metav1.Condition{
+		Type:    ReadyCondition,
+		Status:  metav1.ConditionUnknown,
+		Reason:  ProgressingReason,
+		Message: "reconciliation in progress",
+	}
+	meta.SetStatusCondition(promotion.GetStatusConditions(), newCondition)
+	return promotion
+}
+
+// PromotionReady sets the ReadyCondition to 'True', with the given reason and message.
+// It returns the modified Promotion.
+func PromotionReady(promotion Promotion, reason string, message string) Promotion {
+	newCondition := metav1.Condition{
+		Type:    ReadyCondition,
+		Status:  metav1.ConditionTrue,
+		Reason:  reason,
+		Message: message,
+	}
+	meta.SetStatusCondition(promotion.GetStatusConditions(), newCondition)
+	return promotion
+}
+
+// PromotionNotReady sets the ReadyCondition on the Promotion to 'False', with
+// the given reason and message. It returns the modified Promotion.
+func PromotionNotReady(promotion Promotion, reason string, message string) Promotion {
+	newCondition := metav1.Condition{
+		Type:    ReadyCondition,
+		Status:  metav1.ConditionFalse,
+		Reason:  reason,
+		Message: message,
+	}
+	meta.SetStatusCondition(promotion.GetStatusConditions(), newCondition)
+	return promotion
+}
+
+// PromotionReadyMessage returns the message of the metav1.Condition of type
+// ReadyCondition with status 'True' if present, or an empty string.
+func PromotionReadyMessage(promotion Promotion) string {
+	if c := meta.FindStatusCondition(promotion.Status.Conditions, ReadyCondition); c != nil {
+		if c.Status == metav1.ConditionTrue {
+			return c.Message
+		}
+	}
+	return ""
+}
+
+// GetStatusConditions returns a pointer to the Status.Conditions slice
+func (in *Promotion) GetStatusConditions() *[]metav1.Condition {
+	return &in.Status.Conditions
 }
 
 //+kubebuilder:object:root=true

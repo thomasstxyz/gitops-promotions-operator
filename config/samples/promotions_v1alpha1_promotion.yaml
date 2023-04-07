@@ -8,8 +8,10 @@ spec:
   targetEnvironmentRef:
     name: prod
   copy:
-  - source: app-version
+  - name: "Application Version"
+    source: app-version
     target: ./
-  - source: ./app-version/kustomization.yaml
+  - name: "Kustomization File"
+    source: ./app-version/kustomization.yaml
     target: ./app-version/
   strategy: pull-request

@@ -94,37 +94,53 @@ func (r *PromotionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
+	// Clone source environment repo
 	tmpDir, err := util.TempDirForObj("", obj)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	defer os.RemoveAll(tmpDir)
-
-	// sourceEnvironmentRepo
-	_, err = GitCloneEnvironment(ctx, r.Client, sourceEnvironment, tmpDir)
+	sourceEnvironmentRepo, err := GitCloneEnvironment(ctx, r.Client, sourceEnvironment, tmpDir)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	sourceEnvironmentPath := tmpDir
 
+	// Clone target environment repo
 	tmpDir, err = util.TempDirForObj("", obj)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	defer os.RemoveAll(tmpDir)
-
 	targetEnvironmentRepo, err := GitCloneEnvironment(ctx, r.Client, targetEnvironment, tmpDir)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	targetEnvironmentPath := tmpDir
 
+	// Get the GitProviderRepo for the target environment
 	targetEnvironmentGitProviderRepo, err := NewGitProviderOrgRepository(ctx, r.Client, targetEnvironment, targetEnvironmentRepo)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
+	// Get the git worktree for the source and target environment repos
+	_, err = sourceEnvironmentRepo.Worktree()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	targetEnvironmentWorktree, err := targetEnvironmentRepo.Worktree()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	sourceEnvironmentRepoHeadRef, err := sourceEnvironmentRepo.Head()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Get the source environment's latest git commit
+	sourceEnvironmentLatestCommit, err := sourceEnvironmentRepo.CommitObject(sourceEnvironmentRepoHeadRef.Hash())
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -141,9 +157,9 @@ func (r *PromotionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// isPROpen tells us whether there's already an open pull request for this promotion
 	var isPROpen bool
-	if obj.Status.PullRequestNumber != 0 {
+	if obj.Status.LastPullRequestNumber != 0 {
 		for _, pr := range prs {
-			if pr.Get().Number == obj.Status.PullRequestNumber {
+			if pr.Get().Number == obj.Status.LastPullRequestNumber {
 				isPROpen = true
 				break
 			}
@@ -153,9 +169,7 @@ func (r *PromotionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	var pr gitprovider.PullRequest
 	var branch string
 	if isPROpen {
-		log.Info("There's already an open pull request for this promotion")
-
-		pr, err = targetEnvironmentGitProviderRepo.PullRequests().Get(ctx, obj.Status.PullRequestNumber)
+		pr, err = targetEnvironmentGitProviderRepo.PullRequests().Get(ctx, obj.Status.LastPullRequestNumber)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -176,7 +190,7 @@ func (r *PromotionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}); err != nil {
 			return ctrl.Result{}, err
 		}
-	} else {
+	} else if !isPROpen {
 		branch = fmt.Sprintf("promotion/%s-%s", obj.Name, time.Now().Format("2006-01-02-15-04-05"))
 
 		if err := targetEnvironmentWorktree.Checkout(&gogit.CheckoutOptions{
@@ -197,12 +211,25 @@ func (r *PromotionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// Template commit message.
 	type TemplateData struct {
-		Prom      *promotionsv1alpha1.Promotion
-		SourceEnv *promotionsv1alpha1.Environment
-		TargetEnv *promotionsv1alpha1.Environment
+		Prom                          *promotionsv1alpha1.Promotion
+		SourceEnv                     *promotionsv1alpha1.Environment
+		TargetEnv                     *promotionsv1alpha1.Environment
+		SourceEnvironmentLatestCommit string
 	}
-	tplData := TemplateData{obj, sourceEnvironment, targetEnvironment}
-	tmpl, err := template.New("tpl").Parse("Promote changes from {{.SourceEnv.Name}} to {{.TargetEnv.Name}}\n\n{{range .Prom.Spec.Copy}}{{.Source}} -> {{.Target}}\n{{end}}\nNote: Left side represents source environment and right side represents target environment.")
+	tplData := TemplateData{obj, sourceEnvironment, targetEnvironment, sourceEnvironmentLatestCommit.Hash.String()[0:7]}
+
+	// TODO: See which Copy Operations (Promotion subjects) actually resulted in changes.
+	//   Could be done by changing CopyOperations() to CopyOperation() and running git diff after every CopyOperation().
+
+	tmpl, err := template.New("tpl").Parse(
+`chore: promote {{.SourceEnvironmentLatestCommit}} from {{.SourceEnv.Name}} to {{.TargetEnv.Name}}
+
+Promotion subjects:
+====================
+{{range .Prom.Spec.Copy}}- {{.Name}}
+{{end}}
+`)
+
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -239,18 +266,32 @@ func (r *PromotionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ctrl.Result{}, err
 		}
 
-		if !isPROpen {
-			title := fmt.Sprintf("Promote changes from %s to %s", sourceEnvironment.Name, targetEnvironment.Name)
+		*obj = promotionsv1alpha1.PromotionReady(*obj, promotionsv1alpha1.SucceededReason, "Pushed new changes to PR branch")
 
-			pr, err = targetEnvironmentGitProviderRepo.PullRequests().Create(ctx, title, branch, targetEnvironment.Spec.Source.Reference.Branch, "description")
+		if !isPROpen {
+			title := fmt.Sprintf("chore: promote changes from %s to %s", sourceEnvironment.Name, targetEnvironment.Name)
+
+			pr, err = targetEnvironmentGitProviderRepo.PullRequests().Create(ctx, title, branch, targetEnvironment.Spec.Source.Reference.Branch, "")
 			if err != nil {
 				return ctrl.Result{}, err
 			}
+			isPROpen = true
 
-			obj.Status.PullRequestNumber = pr.Get().Number
-			obj.Status.PullRequestURL = pr.Get().WebURL
-			obj.Status.PullRequestBranch = pr.Get().SourceBranch
+			*obj = promotionsv1alpha1.PromotionReady(*obj, promotionsv1alpha1.SucceededReason, "New Pull request created successfully")
+
+			obj.Status.LastPullRequestNumber = pr.Get().Number
+			obj.Status.LastPullRequestURL = pr.Get().WebURL
 		}
+		// else if isPROpen {
+			// TODO: Edit (update) PR title. With current gitprovider API, we can only edit the PR title.
+		// }
+	} else if status.IsClean() {
+		*obj = promotionsv1alpha1.PromotionReady(*obj, promotionsv1alpha1.SucceededReason, "A pull request is open for review.")
+	}
+
+	// If there's no open PR at this point, we assume that the source and target environments are in sync.
+	if !isPROpen {
+		*obj = promotionsv1alpha1.PromotionReady(*obj, promotionsv1alpha1.SucceededReason, "Source and target environments are in sync, nothing to promote.")
 	}
 
 	end := time.Now()

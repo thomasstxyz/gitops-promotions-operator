@@ -40,6 +40,10 @@ spec:
                 items:
                   description: CopyOperation defines a file/directory copy operation.
                   properties:
+                    name:
+                      description: Name is the name you want to give this copy operation.
+                        E.g. "Application Version"
+                      type: string
                     source:
                       description: The source path to copy from.
                       type: string
@@ -47,6 +51,7 @@ spec:
                       description: The target path to copy to.
                       type: string
                   required:
+                  - name
                   - source
                   - target
                   type: object
@@ -85,7 +90,7 @@ spec:
             properties:
               conditions:
                 description: Conditions is a list of the current conditions of the
-                  Environment.
+                  Promotion.
                 items:
                   description: "Condition contains details for one aspect of the current
                     state of this API Resource. --- This struct is intended for direct
@@ -153,23 +158,19 @@ spec:
                   - type
                   type: object
                 type: array
+              lastPullRequestNumber:
+                description: LastPullRequestNumber is the number of the pull request
+                  created by the promotion.
+                type: integer
+              lastPullRequestUrl:
+                description: LastPullRequestURL is the URL of the pull request created
+                  by the promotion.
+                type: string
               observedGeneration:
                 description: ObservedGeneration is the last observed generation of
-                  the Environment object.
+                  the Promotion object.
                 format: int64
                 type: integer
-              pullRequestBranch:
-                description: PullRequestBranch is the branch of the pull request created
-                  by the promotion.
-                type: string
-              pullRequestNumber:
-                description: PullRequestNumber is the number of the pull request created
-                  by the promotion.
-                type: integer
-              pullRequestUrl:
-                description: PullRequestURL is the URL of the pull request created
-                  by the promotion.
-                type: string
             type: object
         type: object
     served: true
