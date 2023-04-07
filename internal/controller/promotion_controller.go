@@ -54,6 +54,8 @@ type PromotionReconciler struct {
 //+kubebuilder:rbac:groups=promotions.gitopsprom.io,resources=promotions/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=promotions.gitopsprom.io,resources=promotions/finalizers,verbs=update
 
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+
 func (r *PromotionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 	start := time.Now()
