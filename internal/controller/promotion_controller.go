@@ -224,7 +224,7 @@ func (r *PromotionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	//   Could be done by changing CopyOperations() to CopyOperation() and running git diff after every CopyOperation().
 
 	tmpl, err := template.New("tpl").Parse(
-`chore: promote {{.SourceEnvironmentLatestCommit}} from {{.SourceEnv.Name}} to {{.TargetEnv.Name}}
+		`chore: promote {{.SourceEnvironmentLatestCommit}} from {{.SourceEnv.Name}} to {{.TargetEnv.Name}}
 
 Promotion subjects:
 ====================
@@ -285,7 +285,7 @@ Promotion subjects:
 			obj.Status.LastPullRequestURL = pr.Get().WebURL
 		}
 		// else if isPROpen {
-			// TODO: Edit (update) PR title. With current gitprovider API, we can only edit the PR title.
+		// TODO: Edit (update) PR title. With current gitprovider API, we can only edit the PR title.
 		// }
 	} else if status.IsClean() {
 		*obj = promotionsv1alpha1.PromotionReady(*obj, promotionsv1alpha1.SucceededReason, "A pull request is open for review.")
