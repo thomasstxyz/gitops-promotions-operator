@@ -54,9 +54,9 @@ type EnvironmentSpec struct {
 	GitProvider string `json:"gitProvider"`
 }
 
-const (
-	SSHSecretObjectNameSuffix string = "-ssh"
-)
+// const (
+// 	SSHSecretObjectNameSuffix string = "-ssh"
+// )
 
 // Source defines the source repository of the environment.
 type Source struct {
@@ -184,13 +184,13 @@ func (e *Environment) GetStatusConditions() *[]metav1.Condition {
 	return &e.Status.Conditions
 }
 
-func (e *Environment) IsGitRepositoryPrivate() bool {
-	return e.Spec.Source.SecretRef != nil
-}
+// func (e *Environment) IsGitRepositoryPrivate() bool {
+// 	return e.Spec.Source.SecretRef != nil
+// }
 
-func (e *Environment) GetSSHSecretObjectName() string {
-	return e.Name + SSHSecretObjectNameSuffix
-}
+// func (e *Environment) GetSSHSecretObjectName() string {
+// 	return e.Name + SSHSecretObjectNameSuffix
+// }
 
 func (e *Environment) GetBranch() string {
 	if e.Spec.Source.Reference != nil {

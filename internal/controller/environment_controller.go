@@ -54,16 +54,9 @@ type EnvironmentReconciler struct {
 //+kubebuilder:rbac:groups=promotions.gitopsprom.io,resources=environments/finalizers,verbs=update
 
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=secrets/status,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=secrets/finalizers,verbs=get;list;watch;create;update;patch;delete
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Environment object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *EnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 	start := time.Now()
@@ -121,12 +114,10 @@ func SetupGitAuthEnvironment(ctx context.Context, client client.Client, obj *pro
 	// If we have a secret, we use SSH with auth options to clone the repository
 	if obj.Spec.Source.SecretRef != nil {
 		sshSecret := &corev1.Secret{}
-		if obj.Spec.Source.SecretRef != nil {
-			err := client.Get(ctx, types.NamespacedName{Name: obj.GetSSHSecretObjectName(), Namespace: obj.Namespace}, sshSecret)
-			if err != nil {
-				return gitAuthOpts, cloneURL, err
-			}
+		if err := client.Get(ctx, types.NamespacedName{Name: obj.Spec.Source.SecretRef.Name, Namespace: obj.Namespace}, sshSecret); err != nil {
+			return gitAuthOpts, cloneURL, err
 		}
+
 		sshSigner, err := ssh.ParsePrivateKey(sshSecret.Data["private"])
 		if err != nil {
 			return gitAuthOpts, cloneURL, err
@@ -143,36 +134,10 @@ func SetupGitAuthEnvironment(ctx context.Context, client client.Client, obj *pro
 }
 
 func GitCloneEnvironment(ctx context.Context, client client.Client, obj *promotionsv1alpha1.Environment, tmpDir string) (*gogit.Repository, error) {
-	// var repo *gogit.Repository
-
 	gitAuthOpts, cloneURL, err := SetupGitAuthEnvironment(ctx, client, obj)
 	if err != nil {
 		return nil, err
 	}
-
-	// var gitAuthOpts transport.AuthMethod
-	// var cloneURL string = obj.Spec.Source.URL
-
-	// // If we have a secret, we use SSH with auth options to clone the repository
-	// if obj.Spec.Source.SecretRef != nil {
-	// 	sshSecret := &corev1.Secret{}
-	// 	if obj.Spec.Source.SecretRef != nil {
-	// 		err := client.Get(ctx, types.NamespacedName{Name: obj.GetSSHSecretObjectName(), Namespace: obj.Namespace}, sshSecret)
-	// 		if err != nil {
-	// 			return repo, nil
-	// 		}
-	// 	}
-	// 	sshSigner, err := ssh.ParsePrivateKey(sshSecret.Data["private"])
-	// 	if err != nil {
-	// 		return repo, nil
-	// 	}
-	// 	gitAuthOpts = &gogitssh.PublicKeys{
-	// 		User:   "git",
-	// 		Signer: sshSigner,
-	// 	}
-	// 	cloneURL = strings.Replace(cloneURL, "https://", "git@", 1)
-	// 	cloneURL = strings.Replace(cloneURL, ".com/", ".com:", 1)
-	// }
 
 	repo, err := gogit.PlainClone(tmpDir, false, &gogit.CloneOptions{
 		URL:           cloneURL,
