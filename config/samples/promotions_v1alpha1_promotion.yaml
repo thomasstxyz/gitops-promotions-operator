@@ -10,8 +10,11 @@ spec:
   copy:
   - name: "Application Version"
     source: app-version
-    target: ./
+    target: app-version
   - name: "Kustomization File"
     source: ./app-version/kustomization.yaml
     target: ./app-version/
+  - name: "Application Settings"
+    source: settings
+    target: settings
   strategy: pull-request

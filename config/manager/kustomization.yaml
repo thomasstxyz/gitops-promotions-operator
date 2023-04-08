@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: thomasstxyz/gitops-promotions-operator-test
-  newTag: latest1827
+  newTag: latest0019

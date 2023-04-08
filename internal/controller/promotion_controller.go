@@ -21,8 +21,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strings"
 	"text/template"
 	"time"
 
@@ -41,6 +41,7 @@ import (
 
 	securejoin "github.com/cyphar/filepath-securejoin"
 	promotionsv1alpha1 "github.com/thomasstxyz/gitops-promotions-operator/api/v1alpha1"
+	"github.com/thomasstxyz/gitops-promotions-operator/internal/fs"
 	"github.com/thomasstxyz/gitops-promotions-operator/internal/util"
 )
 
@@ -88,12 +89,16 @@ func (r *PromotionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// Ensure that the source and target environments are ready
 	if !sourceEnvironment.IsReady() {
-		log.Error(nil, "Source environment is not ready", "sourceEnvironment", sourceEnvironment)
-		return ctrl.Result{}, nil
+		log.Info("Waiting for source environment to get ready", "sourceEnvironment", sourceEnvironment, "requeueAfter", "10s")
+		return ctrl.Result{
+			RequeueAfter: 10 * time.Second,
+		}, nil
 	}
 	if !targetEnvironment.IsReady() {
-		log.Error(nil, "Target environment is not ready", "targetEnvironment", targetEnvironment)
-		return ctrl.Result{}, nil
+		log.Info("Waiting for target environment to get ready", "targetEnvironment", targetEnvironment, "requeueAfter", "10s")
+		return ctrl.Result{
+			RequeueAfter: 10 * time.Second,
+		}, nil
 	}
 
 	// Clone source environment repo
@@ -140,12 +145,21 @@ func (r *PromotionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	// targetEnvironmentRepoHeadRef, err := targetEnvironmentRepo.Head()
+	// if err != nil {
+	// 	return ctrl.Result{}, err
+	// }
 
 	// Get the source environment's latest git commit
 	sourceEnvironmentLatestCommit, err := sourceEnvironmentRepo.CommitObject(sourceEnvironmentRepoHeadRef.Hash())
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	// Get the target environment's latest git commit
+	// targetEnvironmentLatestCommit, err := targetEnvironmentRepo.CommitObject(targetEnvironmentRepoHeadRef.Hash())
+	// if err != nil {
+	// 	return ctrl.Result{}, err
+	// }
 
 	gitAuthOpts, cloneURL, err := SetupGitAuthEnvironment(ctx, r.Client, targetEnvironment)
 	if err != nil {
@@ -203,91 +217,130 @@ func (r *PromotionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	if err := CopyOperations(ctx, r.Client, obj, sourceEnvironment, targetEnvironment, sourceEnvironmentPath, targetEnvironmentPath); err != nil {
-		return ctrl.Result{}, err
-	}
+	var promotedSubjects []string
 
-	if err := targetEnvironmentWorktree.AddGlob("."); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// Template commit message.
-	type TemplateData struct {
-		Prom                          *promotionsv1alpha1.Promotion
-		SourceEnv                     *promotionsv1alpha1.Environment
-		TargetEnv                     *promotionsv1alpha1.Environment
-		SourceEnvironmentLatestCommit string
-	}
-	tplData := TemplateData{obj, sourceEnvironment, targetEnvironment, sourceEnvironmentLatestCommit.Hash.String()[0:7]}
-
-	// TODO: See which Copy Operations (Promotion subjects) actually resulted in changes.
-	//   Could be done by changing CopyOperations() to CopyOperation() and running git diff after every CopyOperation().
-
-	tmpl, err := template.New("tpl").Parse(
-		`chore: promote {{.SourceEnvironmentLatestCommit}} from {{.SourceEnv.Name}} to {{.TargetEnv.Name}}
-
-Promotion subjects:
-====================
-{{range .Prom.Spec.Copy}}- {{.Name}}
-{{end}}
-`)
-
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	var tpl bytes.Buffer
-	err = tmpl.Execute(&tpl, tplData)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	commitMsg := tpl.String()
-
-	status, err := targetEnvironmentWorktree.Status()
+	beforeHeadRef, err := targetEnvironmentRepo.Head()
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	if !status.IsClean() {
-		_, err := targetEnvironmentWorktree.Commit(commitMsg,
-			&gogit.CommitOptions{
-				Author: &object.Signature{
-					Name:  "Promotion Bot",
-					Email: "bot@promotions.gitopsprom.io",
-					When:  time.Now(),
-				},
-			})
+	// Copy the promotion subjects from the source environment to the target environment
+
+	sourceEnvironmentFullPath := filepath.Join(sourceEnvironmentPath, sourceEnvironment.Spec.Path)
+	targetEnvironmentFullPath := filepath.Join(targetEnvironmentPath, targetEnvironment.Spec.Path)
+
+	for _, copyOperation := range obj.Spec.Copy {
+		copySource, err := securejoin.SecureJoin(sourceEnvironmentFullPath, copyOperation.Source)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		copyTarget, err := securejoin.SecureJoin(targetEnvironmentFullPath, copyOperation.Target)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 
-		if err := targetEnvironmentRepo.Push(&gogit.PushOptions{
-			RemoteName: "origin",
-			RemoteURL:  cloneURL,
-			Auth:       gitAuthOpts,
-		}); err != nil {
+		if err := CopyOperation(ctx, obj, copySource, copyTarget); err != nil {
 			return ctrl.Result{}, err
 		}
 
-		*obj = promotionsv1alpha1.PromotionReady(*obj, promotionsv1alpha1.SucceededReason, "Pushed new changes to PR branch")
+		var status gogit.Status
+		status, err = targetEnvironmentWorktree.Status()
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 
-		if !isPROpen {
-			title := fmt.Sprintf("chore: promote changes from %s to %s", sourceEnvironment.Name, targetEnvironment.Name)
+		if status.IsClean() {
+			// fmt.Println("No changes were made by this copy operation.")
+		} else {
+			// fmt.Println("Changes were made by this copy operation.")
 
-			pr, err = targetEnvironmentGitProviderRepo.PullRequests().Create(ctx, title, branch, targetEnvironment.Spec.Source.Reference.Branch, "")
+			// Add all files to the target environment git worktree
+			if err := targetEnvironmentWorktree.AddGlob("."); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			// Template commit message.
+			type TemplateData struct {
+				Prom                          *promotionsv1alpha1.Promotion
+				SourceEnv                     *promotionsv1alpha1.Environment
+				TargetEnv                     *promotionsv1alpha1.Environment
+				SourceEnvironmentLatestCommit string
+				CopyOperation                 promotionsv1alpha1.CopyOperation
+			}
+			tplData := TemplateData{obj, sourceEnvironment, targetEnvironment, sourceEnvironmentLatestCommit.Hash.String()[0:7], copyOperation}
+
+			tmpl, err := template.New("tpl").Parse(
+				`chore: promote {{.CopyOperation.Name}} from {{.SourceEnv.Name}} to {{.TargetEnv.Name}}
+
+SHA in source environment: {{.SourceEnvironmentLatestCommit}}
+`)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			var tpl bytes.Buffer
+			err = tmpl.Execute(&tpl, tplData)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			commitMsg := tpl.String()
+
+			_, err = targetEnvironmentWorktree.Commit(commitMsg,
+				&gogit.CommitOptions{
+					Author: &object.Signature{
+						Name:  "Promotion Bot",
+						Email: "bot@promotions.gitopsprom.io",
+						When:  time.Now(),
+					},
+				})
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+
+			if err := targetEnvironmentRepo.Push(&gogit.PushOptions{
+				RemoteName: "origin",
+				RemoteURL:  cloneURL,
+				Auth:       gitAuthOpts,
+			}); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			promotedSubjects = append(promotedSubjects, copyOperation.Name)
+
+			*obj = promotionsv1alpha1.PromotionReady(*obj, promotionsv1alpha1.SucceededReason, "Pushed new commits to PR branch")
+		}
+	}
+
+	afterHeadRef, err := targetEnvironmentRepo.Head()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// If we introduced new commits
+	if beforeHeadRef.Hash().String() != afterHeadRef.Hash().String() {
+		promotedSubjectsFormatted := strings.Join(promotedSubjects, ", ")
+		prTitle := fmt.Sprintf("chore: promote %s from %s to %s", promotedSubjectsFormatted, sourceEnvironment.Name, targetEnvironment.Name)
+
+		if isPROpen {
+			_, err = targetEnvironmentGitProviderRepo.PullRequests().Edit(ctx, pr.Get().Number, gitprovider.EditOptions{
+				Title: &prTitle,
+			})
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			pr, err = targetEnvironmentGitProviderRepo.PullRequests().Create(ctx, prTitle, branch, targetEnvironment.Spec.Source.Reference.Branch, "")
 			if err != nil {
 				return ctrl.Result{}, err
 			}
 			isPROpen = true
 
+			log.Info("Created new pull request", "WebURL", pr.Get().WebURL)
 			*obj = promotionsv1alpha1.PromotionReady(*obj, promotionsv1alpha1.SucceededReason, "New Pull request created successfully")
 
 			obj.Status.LastPullRequestNumber = pr.Get().Number
 			obj.Status.LastPullRequestURL = pr.Get().WebURL
 		}
-		// else if isPROpen {
-		// TODO: Edit (update) PR title. With current gitprovider API, we can only edit the PR title.
-		// }
-	} else if status.IsClean() {
+	} else {
 		*obj = promotionsv1alpha1.PromotionReady(*obj, promotionsv1alpha1.SucceededReason, "A pull request is open for review.")
 	}
 
@@ -297,9 +350,11 @@ Promotion subjects:
 	}
 
 	end := time.Now()
-	log.Info("Reconciled Promotion successfully", "duration", end.Sub(start))
+	log.Info("Reconciled Promotion successfully", "duration", end.Sub(start), "nextReconcile", "300s")
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{
+		RequeueAfter: 300 * time.Second,
+	}, nil
 }
 
 // GetCommitObject returns the commit object for a given commit hash
@@ -314,24 +369,45 @@ func GetCommitObject(ctx context.Context, client client.Client, obj *promotionsv
 	return commit, nil
 }
 
-func CopyOperations(ctx context.Context, client client.Client, obj *promotionsv1alpha1.Promotion, sourceEnvironment *promotionsv1alpha1.Environment, targetEnvironment *promotionsv1alpha1.Environment, sourceEnvironmentPath string, targetEnvironmentPath string) error {
-	sourceEnvironmentPath = filepath.Join(sourceEnvironmentPath, sourceEnvironment.Spec.Path)
-	targetEnvironmentPath = filepath.Join(targetEnvironmentPath, targetEnvironment.Spec.Path)
+func CopyOperation(ctx context.Context, obj *promotionsv1alpha1.Promotion,
+	copySource string, copyTarget string) error {
 
-	for _, cp := range obj.Spec.Copy {
-		s, err := securejoin.SecureJoin(sourceEnvironmentPath, cp.Source)
-		if err != nil {
+	if !fs.Exists(copySource) {
+		return fmt.Errorf("source path %s does not exist", copySource)
+	}
+
+	copySourceFileInfo, err := os.Stat(copySource)
+	if err != nil {
+		return err
+	}
+	copyTargetFileInfo, err := os.Stat(copyTarget)
+	if err != nil {
+		return err
+	}
+
+	// If source is a directory.
+	if copySourceFileInfo.IsDir() {
+		// Create target directory if it does not exist.
+		if err := os.MkdirAll(filepath.Dir(copyTarget), 0755); err != nil {
 			return err
 		}
-		t, err := securejoin.SecureJoin(targetEnvironmentPath, cp.Target)
-		if err != nil {
+
+		if err := fs.CopyDirectory(copySource, copyTarget); err != nil {
+			return err
+		}
+		// If source is a file.
+	} else {
+		// Handle case when specified target is a directory.
+		if copyTargetFileInfo.IsDir() {
+			copyTarget = filepath.Join(copyTarget, filepath.Base(copySource))
+		}
+
+		// Create target directory if it does not exist.
+		if err := os.MkdirAll(filepath.Dir(copyTarget), 0755); err != nil {
 			return err
 		}
 
-		cmd := exec.Command("cp", "-r", s, t)
-
-		_, err = cmd.Output()
-		if err != nil {
+		if err := fs.Copy(copySource, copyTarget); err != nil {
 			return err
 		}
 	}
