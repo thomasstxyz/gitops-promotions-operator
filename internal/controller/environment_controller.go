@@ -54,8 +54,6 @@ type EnvironmentReconciler struct {
 //+kubebuilder:rbac:groups=promotions.gitopsprom.io,resources=environments/finalizers,verbs=update
 
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups="",resources=secrets/status,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups="",resources=secrets/finalizers,verbs=get;list;watch;create;update;patch;delete
 
 func (r *EnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
@@ -125,6 +123,9 @@ func SetupGitAuthEnvironment(ctx context.Context, client client.Client, obj *pro
 		gitAuthOpts = &gogitssh.PublicKeys{
 			User:   "git",
 			Signer: sshSigner,
+			HostKeyCallbackHelper: gogitssh.HostKeyCallbackHelper{
+				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			},
 		}
 		cloneURL = strings.Replace(cloneURL, "https://", "git@", 1)
 		cloneURL = strings.Replace(cloneURL, ".com/", ".com:", 1)
@@ -145,7 +146,7 @@ func GitCloneEnvironment(ctx context.Context, client client.Client, obj *promoti
 		Auth:          gitAuthOpts,
 	})
 	if err != nil {
-		return repo, nil
+		return nil, err
 	}
 
 	return repo, nil
