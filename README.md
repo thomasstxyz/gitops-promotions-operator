@@ -7,6 +7,12 @@ and promotes them to other Environments.
 
 ## Getting Started (as a User)
 
+### Install CRDs and Controller
+
+```bash
+kubectl apply -k github.com/thomasstxyz/gitops-promotions-operator/config/default
+```
+
 ### Create an `Environment` for your source environment.
 
 ```yaml
@@ -90,6 +96,12 @@ the operator will create a pull request.
 ![](docs/assets/github-pr-commits-view.png)
 
 ![](docs/assets/github-pr-files-changed-view.png)
+
+### Uninstalling
+
+```bash
+kubectl delete -k github.com/thomasstxyz/gitops-promotions-operator/config/default
+```
 
 ## Creating an ssh key pair
 
