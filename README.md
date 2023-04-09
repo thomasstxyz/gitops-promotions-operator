@@ -3,9 +3,11 @@
 The GitOps Promotions Operator watches Git Repositories (Environments) for changes,
 and promotes them to other Environments.
 
-## Getting Started
+![](docs/assets/architecture-controller-crd.png)
 
-Create a `Environment` CR for your source environment.
+## Getting Started (as a User)
+
+### Create an `Environment` for your source environment.
 
 ```yaml
 apiVersion: promotions.gitopsprom.io/v1alpha1
@@ -23,7 +25,7 @@ spec:
 > If it's a private repository, you must add `.spec.source.secretRef`
 > and setup an ssh key pair explained at [Creating an ssh key pair](#creating-an-ssh-key-pair).
 
-Create a `Environment` CR for your target environment.
+### Create an `Environment` for your target environment.
 
 ```yaml
 apiVersion: promotions.gitopsprom.io/v1alpha1
@@ -53,7 +55,10 @@ follow [Creating an ssh key pair](#creating-an-ssh-key-pair) to set it up.
 kubectl create secret generic github-api-token --from-literal=token="ghp_n139N..."
 ```
 
-Create a `Promotion` CR.
+### Create a `Promotion`
+
+`.spec.copy.source` and `.spec.copy.target` are filesystem paths relative
+to `.spec.path` in the `Environment` CR.
 
 ```yaml
 apiVersion: promotions.gitopsprom.io/v1alpha1
@@ -120,9 +125,14 @@ rm key.pub
 ```
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
 
-## Getting Started
+The GitOps Promotions Operator watches Git Repositories (`Environments`) for changes,
+and promotes them to other Environments.
+
+This is done by defining `Environment` and `Promotion` custom resources,
+as explained it the [Getting Started (as a User)](#getting-started--as-a-user).
+
+## Getting Started (as a Developer)
 You’ll need a Kubernetes cluster to run against. You can use [KIND](https://sigs.k8s.io/kind) to get a local cluster for testing, or run against a remote cluster.
 **Note:** Your controller will automatically use the current context in your kubeconfig file (i.e. whatever cluster `kubectl cluster-info` shows).
 
