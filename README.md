@@ -1,7 +1,92 @@
 # gitops-promotions-operator
-// TODO(user): Add simple overview of use/purpose
 
-## Authentication for private git repositories
+The GitOps Promotions Operator watches Git Repositories (Environments) for changes,
+and promotes them to other Environments.
+
+## Getting Started
+
+Create a `Environment` CR for your source environment.
+
+```yaml
+apiVersion: promotions.gitopsprom.io/v1alpha1
+kind: Environment
+metadata:
+  name: dev
+spec:
+  path: ./envs/dev
+  source:
+    url: https://github.com/thomasstxyz/example-kustomize-overlay-dev
+    ref:
+      branch: main
+```
+
+> If it's a private repository, you must add `.spec.source.secretRef`
+> and setup an ssh key pair explained at [Creating an ssh key pair](#creating-an-ssh-key-pair).
+
+Create a `Environment` CR for your target environment.
+
+```yaml
+apiVersion: promotions.gitopsprom.io/v1alpha1
+kind: Environment
+metadata:
+  name: prod
+spec:
+  path: ./envs/prod
+  source:
+    url: https://github.com/thomasstxyz/example-kustomize-overlay-prod
+    ref:
+      branch: main
+    secretRef:
+      name: prod-ssh
+  apiTokenSecretRef:
+    name: github-api-token
+  gitProvider: github
+```
+
+`.spec.source.secretRef` references a secret which contains an ssh key pair,
+follow [Creating an ssh key pair](#creating-an-ssh-key-pair) to set it up.
+
+`.spec.apiTokenSecretRef` references a secret which contains an API Token for the git provider
+(GitHub), with permissions to create Pull Requests. This secret can be created with the following command:
+
+```bash
+kubectl create secret generic github-api-token --from-literal=token="ghp_n139N..."
+```
+
+Create a `Promotion` CR.
+
+```yaml
+apiVersion: promotions.gitopsprom.io/v1alpha1
+kind: Promotion
+metadata:
+  name: from-dev-to-prod
+spec:
+  sourceEnvironmentRef:
+    name: dev
+  targetEnvironmentRef:
+    name: prod
+  copy:
+  - name: "Application Version"
+    source: app-version
+    target: app-version
+  - name: "Kustomization File"
+    source: ./app-version/kustomization.yaml
+    target: ./app-version/
+  - name: "Application Settings"
+    source: settings
+    target: settings
+  strategy: pull-request
+```
+
+Now if there are changes in the source environment,
+which differ from the target environment,
+the operator will create a pull request.
+
+![](docs/assets/github-pr-commits-view.png)
+
+![](docs/assets/github-pr-files-changed-view.png)
+
+## Creating an ssh key pair
 
 Generate an RSA key pair for SSH auth.
 
@@ -11,25 +96,23 @@ GITOPSPROMBOT_PRIVATE_KEY=$(cat key)
 GITOPSPROMBOT_PUBLIC_KEY=$(cat key.pub)
 ```
 
-Create a Secret following the syntax
-`<environment>-ssh`.
+Create a Secret.
 
 ```bash
-kubectl create secret generic privaterepo-ssh \
+kubectl create secret generic prod-ssh \
 --from-literal=private=${GITOPSPROMBOT_PRIVATE_KEY} \
 --from-literal=public=${GITOPSPROMBOT_PUBLIC_KEY}
 ```
 
 The public key needs to be configured as a "deploy key" in the Git Repository.
-**If you want to promote this environment, the deploy key needs write permissions!**
+**If you want to promote to this environment, the deploy key needs write permissions!**
 ```bash
 cat key.pub
 ```
 > Docs about how to configure a deploy key:
 > - [GitHub](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys)
 
-
-When applied to the cluster, you should delete the key from your machine.
+When applied to the cluster, you should delete the key from your local machine.
 
 ```bash
 rm key
